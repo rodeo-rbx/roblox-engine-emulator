@@ -44,6 +44,7 @@ src/content_id.rs        How a client reads an asset's content id (pinned versio
 src/path2d.rs            Path2D control points, splines, and curve queries
 src/serve/               Warm background service (`ree serve`) and `--service` client
 src/watchdog.rs          Script timeout, wall-clock cap, and parent-exit watchdog
+src/hostcall.rs          Context.HostCall: a harness's line to the program running `ree` (REE_HOST_CALL)
 src/trace.rs, census.rs  Context.TraceWrites and Context.Census (plus lua/holders.rs for Context.Holders)
 src/timing.rs, files.rs  Phase timers, cache file stamps, and long-lived heap (alloc.rs)
 build.rs                 Writes OUT_DIR/conversion_digest.rs (REE_CONVERSION_DIGEST) keying cached `<bundle>.plan` files
