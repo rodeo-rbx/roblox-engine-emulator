@@ -517,6 +517,7 @@ Runs a paired server and client (`RunContext::Server` + `RunContext::Client`) on
 - No rigid-body collisions, physics constraints, body movers, particle simulation, or default character `Animate` scripts (`PhysicsService`'s collision groups are a registry scripts read and write; nothing collides).
 - No Humanoid simulation: no state machine, health or death (`TakeDamage`, `ChangeState`, `MoveTo`, `GetState`, and the `HealthChanged`/`Died` a `Health` write would fire report `missing`; `Health` is stored as written).
 - All Luau HTTP requests are disabled.
+- `ScriptEditorService:UpdateSourceAsync` follows Roblox's documentation, not a measurement: the callback gets the script's source, what it returns becomes the source, and nil leaves it. It is PluginSecurity in Roblox; here any script may call it, as it is not among the members a game script may not use (above). The service's other members are not emulated.
 - `ReflectionService`'s entries iterate their keys in another order than a client's ("ReflectionService").
 - Subnormal numbers flush to zero only on x86-64 (the float mode above); an AArch64 or WebAssembly build keeps them.
 - Primary development platform is Windows (Linux/macOS are built and smoke-tested in CI; off-Windows `ree serve` cannot detect stale dead PIDs via `alive()`, and memory checks use `/proc/meminfo` on Linux only).

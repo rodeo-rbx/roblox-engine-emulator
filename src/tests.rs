@@ -7486,6 +7486,44 @@ fn actor_messages_reach_their_bindings_where_a_client_runs_them() {
     );
 }
 
+#[test]
+fn script_editor_service_updates_a_source_through_its_callback() {
+    // ScriptEditorService:UpdateSourceAsync (Roblox's documentation): the callback gets the source the script has and
+    // what it returns becomes the source; nil leaves it. A tool that writes sources (rodeo's runner) requires the
+    // module afterwards.
+    let (lua, engine) = start();
+    let output = run(
+        &lua,
+        &engine,
+        r#"
+        local Editor = game:GetService("ScriptEditorService")
+        local Module = Instance.new("ModuleScript")
+        local Seen = {}
+        Editor:UpdateSourceAsync(Module, function(Old)
+            table.insert(Seen, Old)
+            return "return 40 + 2"
+        end)
+        Editor:UpdateSourceAsync(Module, function(Old)
+            table.insert(Seen, Old)
+            return nil
+        end)
+        print(#Seen, Seen[1] == "", Seen[2], Module.Source)
+        print(require(Module))
+        print(pcall(Editor.UpdateSourceAsync, Editor, Instance.new("Part"), function() return "" end))
+        print(pcall(Editor.UpdateSourceAsync, Editor, Module, "return 1"))
+        "#,
+    );
+    assert_eq!(
+        output,
+        [
+            "print: 2 true return 40 + 2 return 40 + 2",
+            "print: 42",
+            "print: false Unable to cast value to Object",
+            "print: false Unable to cast value to function",
+        ]
+    );
+}
+
 /// SendMessage costs a client its copy (actors.rs MESSAGE_ARGUMENTS and after; a 0.747 playing client): one number 81 ns over none,
 /// a table of ten numbers 384, a dictionary of ten 1,056.
 #[test]

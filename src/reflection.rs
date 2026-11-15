@@ -551,8 +551,10 @@ fn default_supplement() -> [(&'static str, &'static str, Variant); 2] {
 }
 
 // Methods of classes only rbx-dom describes (it lists properties alone): UserGameSettings's, which
-// Roblox's PlayerModule calls (behaviours in lua/services.luau), and settings()' (services/settings.rs: GetMaxQualityLevel
-// answers; GetFFlag and GetFVariable are not emulated, since ree knows no flag values)
+// Roblox's PlayerModule calls (behaviours in lua/services.luau), settings()' (services/settings.rs: GetMaxQualityLevel
+// answers; GetFFlag and GetFVariable are not emulated, since ree knows no flag values), and ScriptEditorService's
+// UpdateSourceAsync, which a tool that writes a script's source calls (rodeo's runner: a Source assignment stops at
+// 200,000 bytes in Studio; behaviour in lua/services.luau)
 const METHOD_SUPPLEMENT: &[(&str, &[&str])] = &[
     (
         "UserGameSettings",
@@ -568,6 +570,7 @@ const METHOD_SUPPLEMENT: &[(&str, &[&str])] = &[
     ),
     ("GlobalSettings", &["GetFFlag", "GetFVariable"]),
     ("RenderSettings", &["GetMaxQualityLevel"]),
+    ("ScriptEditorService", &["UpdateSourceAsync"]),
 ];
 
 // Properties the dump leaves out: (class, name, script type, engine type or enum, scriptable, serialized). Path2D keeps its

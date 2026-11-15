@@ -3063,4 +3063,22 @@ R.OnImageClone(function(Original, Copy)
 	R.ShowsImage(Copy)
 end)
 
+-- ScriptEditorService:UpdateSourceAsync(Script, Callback): the script's Source becomes what Callback returns for the source
+-- it has now, and stays as it is when Callback returns nil. From Roblox's documentation, not measured: the method is
+-- PluginSecurity, which ree does not gate (it is none of the members a game script may not use, and ree leaves Source
+-- open in a play run: docs/engine.md), so any script may call it here. A tool that writes a script's source (rodeo's
+-- runner) calls it in place of a Source assignment, which Studio refuses at 200,000 bytes.
+Method("ScriptEditorService", "UpdateSourceAsync", function(_, Script, Callback)
+	if typeof(Script) ~= "Instance" or not Script:IsA("LuaSourceContainer") then
+		error("Unable to cast value to Object", ScriptLevel(2))
+	end
+	if type(Callback) ~= "function" then
+		error("Unable to cast value to function", ScriptLevel(2))
+	end
+	local Source = Callback(Script.Source)
+	if Source ~= nil then
+		Script.Source = Source
+	end
+end)
+
 return true
