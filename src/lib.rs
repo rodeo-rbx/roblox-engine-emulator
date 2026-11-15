@@ -1155,13 +1155,17 @@ impl Engine {
         if !self.options.edit_mode() && fire_script_context {
             self.fire_script_error(&mut state, &message, trace.as_deref(), script);
         }
-        if !self.options.edit_mode() && !state.sched.delivering_log {
+        if !state.sched.delivering_log {
             // LogService.MessageOut gets the line later in the frame, on a playing client and on a server alike
             // (scheduler::deliver_log; measured in a server game script, Studio 0.744: print, LogService:Info, :Warn and :Error's
             // lines of one step arrive after that frame's Heartbeat handlers and the deferred work beside them). An error, and
             // an engine warning that carries the script's stack, has its stack lines in the text, on a client and on a server
             // alike (measured in a server's game script too: tools/parity/probes/logservice.luau and logservice_text.luau run
             // with run.mjs --server).
+            // Edit mode gets its lines too. That an edit DataModel's MessageOut fires is not measured here but relied on by
+            // tools that capture a Studio's output at plugin identity (rodeo's runner connects it in the edit DataModel and
+            // receives its run's lines; before, such a run printed nothing through ree). Where in an edit frame is not
+            // measured: delivered where a playing client's are, after the Heartbeat handlers.
             state.sched.log_queue.push(LogLine { kind, text, context });
         }
         state.output.add(kind, message, trace, now);
