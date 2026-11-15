@@ -7257,6 +7257,33 @@ fn a_playing_clients_message_out_arrives_after_the_frames_heartbeat() {
     assert!(output.contains(&want.to_string()), "{output:?}");
 }
 
+/// An edit DataModel's LogService.MessageOut gets its lines as well (not measured: tools that capture a Studio's output at
+/// plugin identity rely on it, rodeo's runner among them), delivered where a playing client's are: after the frame's
+/// Heartbeat handlers.
+#[test]
+fn edit_modes_message_out_gets_the_lines_logged() {
+    let (lua, engine) = start();
+    assert!(engine.options.edit_mode());
+    crate::scheduler::step(&lua, &engine, Some(1.0 / 60.0)).expect("step");
+    run(
+        &lua,
+        &engine,
+        r##"
+        local Log = {}
+        _G.Log = Log
+        game:GetService("LogService").MessageOut:Connect(function(Message, Kind)
+            table.insert(Log, Kind.Name .. "[" .. Message .. "]")
+        end)
+        print("one", 2)
+        warn("careful")
+        table.insert(Log, "after-call")
+        "##,
+    );
+    crate::scheduler::step(&lua, &engine, Some(1.0 / 60.0)).expect("step");
+    let output = run(&lua, &engine, r#"print(table.concat(_G.Log, ","))"#);
+    assert!(output.contains(&"print: after-call,MessageOutput[one 2],MessageWarning[careful]".to_string()), "{output:?}");
+}
+
 #[test]
 fn log_history_is_ordered_bounded_and_returns_independent_tables() {
     for server in [false, true] {

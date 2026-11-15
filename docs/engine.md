@@ -327,7 +327,7 @@ Runs a paired server and client (`RunContext::Server` + `RunContext::Client`) on
 ## Output and `LogService`
 
 - `LogService:GetLogHistory()` returns a fresh oldest-first array of `{ message, messageType, timestamp }` (wall-clock Unix seconds), recording `print`, `warn`, errors, and `LogService` calls immediately up to an emulator cap of **10,000** entries (`logservice.luau`).
-- `LogService.MessageOut` fires after `Heartbeat` + deferred flush with `(text, messageType, contextCopy)` (messages emitted inside a `MessageOut` handler do not re-trigger `MessageOut`). Script errors include `Stack Begin` / `Stack End` lines.
+- `LogService.MessageOut` fires after `Heartbeat` + deferred flush with `(text, messageType, contextCopy)` (messages emitted inside a `MessageOut` handler do not re-trigger `MessageOut`). An edit session's lines fire it too, at the same point of its frame (not measured: tools that capture a Studio's output at plugin identity rely on an edit DataModel's `MessageOut`, rodeo's runner among them). Script errors include `Stack Begin` / `Stack End` lines.
 - `LogService:Output`/`Info`/`Warn`/`Error`/`Log` interpolate `{key}` placeholders (`{{`/`}}` escape), sanitize context copies (functions → `"<function>"`, instances → full name; mixed-key tables stringify non-primitives), and `Error` throws a formatted table with `{ message, template, context, stack }`.
 
 ## Known limitations
