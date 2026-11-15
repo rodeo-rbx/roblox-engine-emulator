@@ -5455,6 +5455,44 @@ fn actors_run_their_scripts_in_a_vm_of_their_own_in_studios_order() {
 /// Script.Source and Script.RunContext are plugin-writable in Studio and ree has no plugin boundary: a script can
 /// set them (the Actor probe builds its workers that way), and a module's new source is the one required.
 #[test]
+fn script_editor_service_updates_a_source_through_its_callback() {
+    // ScriptEditorService:UpdateSourceAsync (Roblox's documentation): the callback gets the source the script has and
+    // what it returns becomes the source; nil leaves it. A tool that writes sources (rodeo's runner) requires the
+    // module afterwards.
+    let (lua, engine) = start();
+    let output = run(
+        &lua,
+        &engine,
+        r#"
+        local Editor = game:GetService("ScriptEditorService")
+        local Module = Instance.new("ModuleScript")
+        local Seen = {}
+        Editor:UpdateSourceAsync(Module, function(Old)
+            table.insert(Seen, Old)
+            return "return 40 + 2"
+        end)
+        Editor:UpdateSourceAsync(Module, function(Old)
+            table.insert(Seen, Old)
+            return nil
+        end)
+        print(#Seen, Seen[1] == "", Seen[2], Module.Source)
+        print(require(Module))
+        print(pcall(Editor.UpdateSourceAsync, Editor, Instance.new("Part"), function() return "" end))
+        print(pcall(Editor.UpdateSourceAsync, Editor, Module, "return 1"))
+        "#,
+    );
+    assert_eq!(
+        output,
+        [
+            "print: 2 true return 40 + 2 return 40 + 2",
+            "print: 42",
+            "print: false Unable to cast value to Object",
+            "print: false Unable to cast value to function",
+        ]
+    );
+}
+
+#[test]
 fn script_source_and_run_context_are_writable() {
     assert_script(
         r#"

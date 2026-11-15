@@ -336,6 +336,7 @@ Runs a paired server and client (`RunContext::Server` + `RunContext::Client`) on
 - No rigid-body collisions, physics constraints, body movers, particle simulation, or default character `Animate` scripts (`PhysicsService`'s collision groups are a registry scripts read and write; nothing collides).
 - No Humanoid simulation: no state machine, health or death (`TakeDamage`, `ChangeState`, `MoveTo`, `GetState`, and the `HealthChanged`/`Died` a `Health` write would fire report `missing`; `Health` is stored as written).
 - All Luau HTTP requests are disabled.
+- `ScriptEditorService:UpdateSourceAsync` follows Roblox's documentation, not a measurement: the callback gets the script's source, what it returns becomes the source, and nil leaves it. It is PluginSecurity in Roblox; any script may call it here, since capabilities are not emulated. The service's other members are not emulated.
 - `SecurityCapabilities` are not emulated (`ReflectionService` `Permits` returns a frozen table reporting `missing` on access); `GetPropertiesOfClass`, `GetMethodsOfClass`, and `GetEventsOfClass` are unimplemented.
 - Missing member reads on some datatypes (`CFrame`, `Color3`, `UDim2`, `Vector2`, `Ray`, `RaycastParams`, `OverlapParams`) currently return `nil` or slightly different error wording where Roblox raises (`tools/parity/known.json`).
 - Subnormal numbers flush to zero only on x86-64 (the float mode above); an AArch64 or WebAssembly build keeps them.

@@ -1236,6 +1236,22 @@ end)
 for _, Name in { "SetCameraYInvertVisible", "SetGamepadCameraSensitivityVisible", "SetOnboardingCompleted" } do
 	Method("UserGameSettings", Name, function() if Name == "SetOnboardingCompleted" then Missing("UserGameSettings", Name) end end) -- (the other two only show options in Roblox's own settings menu, which no script reads)
 end
+-- ScriptEditorService:UpdateSourceAsync(Script, Callback): the script's Source becomes what Callback returns for the source
+-- it has now, and stays as it is when Callback returns nil. From Roblox's documentation, not measured: the method is
+-- PluginSecurity and capabilities are not emulated, so any script may call it here. A tool that writes a script's source
+-- (rodeo's runner) calls it in place of a Source assignment, which Studio refuses at 200,000 bytes.
+Method("ScriptEditorService", "UpdateSourceAsync", function(_, Script, Callback)
+	if typeof(Script) ~= "Instance" or not Script:IsA("LuaSourceContainer") then
+		error("Unable to cast value to Object", ScriptLevel(2))
+	end
+	if type(Callback) ~= "function" then
+		error("Unable to cast value to function", ScriptLevel(2))
+	end
+	local Source = Callback(Script.Source)
+	if Source ~= nil then
+		Script.Source = Source
+	end
+end)
 for _, Name in { "LogCustomEvent", "LogEconomyEvent", "LogProgressionEvent", "LogFunnelStepEvent", "LogOnboardingFunnelStepEvent" } do
 	Method("AnalyticsService", Name, function() end) -- (the events go to the creator's analytics dashboard; nothing a script can read changes: Roblox's AnalyticsService documentation)
 end
