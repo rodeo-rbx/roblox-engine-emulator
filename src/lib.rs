@@ -23,6 +23,7 @@ pub mod derived;
 pub mod dom;
 pub mod emulator;
 pub mod files;
+pub mod hostcall;
 pub mod images;
 pub mod instance;
 pub mod launch;

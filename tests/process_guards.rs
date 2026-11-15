@@ -287,3 +287,93 @@ fn hardware_counters_leave_a_recording_as_it_was() {
     assert!(frames > 0 && frames == json["timeline"]["rows"].as_array().unwrap().len(), "{frames} frames counted");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A host for `Context.HostCall` (src/hostcall.rs): accepts one run, takes its token frame, then answers each frame with
+/// `echo:<request>`, a `sleep:<seconds>` request after that long. Returns its address and, once the run hangs up, the
+/// token and the requests it got.
+fn echo_host() -> (String, std::thread::JoinHandle<(String, Vec<String>)>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let host = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut read = move |stream: &mut std::net::TcpStream| -> Option<Vec<u8>> {
+            let mut length = [0u8; 4];
+            stream.read_exact(&mut length).ok()?;
+            let mut bytes = vec![0u8; u32::from_le_bytes(length) as usize];
+            stream.read_exact(&mut bytes).ok()?;
+            Some(bytes)
+        };
+        let token = String::from_utf8(read(&mut stream).unwrap()).unwrap();
+        let mut requests = Vec::new();
+        while let Some(request) = read(&mut stream) {
+            let request = String::from_utf8(request).unwrap();
+            if let Some(seconds) = request.strip_prefix("sleep:") {
+                std::thread::sleep(Duration::from_secs_f64(seconds.parse().unwrap()));
+            }
+            let reply = format!("echo:{request}");
+            stream.write_all(&(reply.len() as u32).to_le_bytes()).unwrap();
+            stream.write_all(reply.as_bytes()).unwrap();
+            requests.push(request);
+        }
+        (token, requests)
+    });
+    (address, host)
+}
+
+#[test]
+fn a_harness_has_no_host_call_without_a_host() {
+    let root = scratch("no-host");
+    let probe = harness(&root, "return function(Context) print(Context.HostCall == nil) print('@done') end");
+    let done = ree(&root, &probe, &["--seconds", "1"]).env_remove("REE_HOST_CALL").env_remove("REE_HOST_TOKEN").output().unwrap();
+    let summary: serde_json::Value = serde_json::from_str(String::from_utf8_lossy(&done.stdout).trim()).expect("the summary on stdout");
+    assert_eq!(summary["output"][0]["message"], "true", "{summary}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_host_call_returns_the_hosts_reply_while_the_clock_stands_and_its_wait_is_not_script_work() {
+    // The first wait is long enough for the watchdog to arm the script timeout for this resumption (two of its 0.1 s
+    // ticks) and the loop after it for the timeout to start timing it; the second wait is longer than the timeout's
+    // host-time backstop (0.5 s x 6). It is the host's time, not the script's: no timeout fires, and the clocks a script
+    // reads stand where they were.
+    let root = scratch("host-call");
+    let probe = harness(
+        &root,
+        "return function(Context) \
+            print(Context.HostCall('ping')) \
+            Context.HostCall('sleep:0.35') \
+            for _ = 1, 400000 do end \
+            local Time, Clock = time(), os.clock() \
+            print(Context.HostCall('sleep:4')) \
+            print(time() == Time, os.clock() - Clock < 0.01) \
+            for _ = 1, 400000 do end \
+            print('@done') \
+        end",
+    );
+    let (address, host) = echo_host();
+    let started = Instant::now();
+    let done = ree(&root, &probe, &["--seconds", "2", "--script-timeout", "0.5"]).env("REE_HOST_CALL", &address).env("REE_HOST_TOKEN", "a-token").output().unwrap();
+    let (stdout, stderr) = (String::from_utf8_lossy(&done.stdout), String::from_utf8_lossy(&done.stderr));
+    assert_eq!(done.status.code(), Some(0), "{stderr}");
+    assert!(!stderr.contains("script timeout"), "{stderr}");
+    assert!(started.elapsed() >= Duration::from_secs(4), "the run waited for its host");
+    let summary: serde_json::Value = serde_json::from_str(stdout.trim()).expect("the summary on stdout");
+    let lines: Vec<&str> = summary["output"].as_array().unwrap().iter().map(|line| line["message"].as_str().unwrap()).collect();
+    assert_eq!(lines, ["echo:ping", "echo:sleep:4", "true true", "@done"], "{summary}");
+    assert_eq!(summary["frames"], 1, "the waits took no frames: {summary}");
+    let requests: Vec<String> = ["ping", "sleep:0.35", "sleep:4"].iter().map(|request| request.to_string()).collect();
+    assert_eq!(host.join().unwrap(), ("a-token".to_string(), requests));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_host_call_to_an_address_that_is_not_loopback_is_refused() {
+    let root = scratch("host-refused");
+    let probe = harness(&root, "return function(Context) print(pcall(Context.HostCall, 'ping')) print('@done') end");
+    let done = ree(&root, &probe, &["--seconds", "1"]).env("REE_HOST_CALL", "192.0.2.1:9").output().unwrap();
+    let summary: serde_json::Value = serde_json::from_str(String::from_utf8_lossy(&done.stdout).trim()).expect("the summary on stdout");
+    let line = summary["output"][0]["message"].as_str().unwrap();
+    assert!(line.starts_with("false") && line.contains("not a loopback address"), "{line}");
+    let _ = std::fs::remove_dir_all(&root);
+}

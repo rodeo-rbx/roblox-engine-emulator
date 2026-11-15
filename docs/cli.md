@@ -64,6 +64,7 @@ A harness is a `ModuleScript` mounted at `ReplicatedStorage.RURFixtures.<name>` 
 | `Context.TraceWrites(Properties?, Depth?, Root?)` | Returns `Drain()`, listing Luau call stacks (`Chunk:line`, innermost `Depth` frames) for `Parent` writes and watched properties (`"*"` includes all properties and `SetAttribute` with `Kind = "attribute"`). |
 | `Context.Census(Depth?)` | Returns `Take(Collect?)` producing a JSON snapshot of live threads (creation line, suspension point, wake source), connections, handler/thread churn since last call, pending timers/deferred tasks, and live instances by class/parent (`src/census.rs`). |
 | `Context.Holders(Filters, Examples?, Requeue?)` | Explains what keeps unparented instance trees (whose root matches a filter prefix) alive—properties, queued work, pins, or shortest Luau reference path from modules/handlers/threads/globals/registry (`src/lua/holders.rs`). |
+| `Context.HostCall(Request)` | (Only when the program running `ree` set `REE_HOST_CALL`) Sends `Request` to that program as one frame and returns its reply as a string (`src/hostcall.rs`). Nothing else runs while it waits and no clock a script reads moves, so a run reads the same however long the host takes, and the wait is not script work. Only a loopback address is dialed; scripts get no socket of their own. `rodeo run --ree` answers a script's `@rodeo/*` calls through it. |
 
 ## Run contexts and devices
 
@@ -439,5 +440,6 @@ Many variables retain `RUR_*` names for compatibility with `rur` tooling (full l
 | `RUR_LUAU_ALLOC_PROFILE=<file>` | Folded allocation bytes (+ `<file>.counts`; `RUR_LUAU_ALLOC_STEP=<bytes>`, default `1024`) |
 | `REE_PROFILE`, `REE_PROFILE_OUT`, `REE_PROFILE_COUNTERS`, `REE_HW_COUNTERS`, `REE_HW_PIN` | Profiling & hardware counter controls |
 | `REE_SCRIPT_TIMEOUT`, `REE_MAX_SCRIPT_TIMEOUTS`, `REE_MAX_WALL_SECONDS`, `REE_PARENT_WATCH` | Watchdog & limit controls |
+| `REE_HOST_CALL`, `REE_HOST_TOKEN` | Set by a program that runs `ree` as its engine: the loopback `ip:port` it listens on, and the word the run sends first, for `Context.HostCall` |
 | `REE_DEVICE`, `REE_TIMING_CHECK`, `REE_TIMING_PROBES`, `REE_FROZEN_CLOCK`, `REE_SERVE_WORKERS`, `REE_ASSET_WORKER`, `REE_VIEW_COLOR` | Runtime, service, and viewer controls |
 | `REE_LOCALIZED_PLACES`, `REE_MATCH_PLACES` | Place IDs with extra client localization/geometry write costs ([engine.md](engine.md)) |

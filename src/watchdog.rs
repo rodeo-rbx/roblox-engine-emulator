@@ -259,6 +259,18 @@ impl Drop for Entered {
     }
 }
 
+/// Host time the running resumption spent waiting on the run's host (a host call, hostcall.rs): not script work, so the
+/// [`HOST_BACKSTOP`] of the timeout it is timed for starts that much later. A person typing on stdin, or a process the
+/// host runs for the script, would otherwise end the script at 6 times the limit.
+pub fn forgive(waited: Duration) {
+    TIMING.with(|cell| {
+        let timing = cell.get();
+        if let Some(host) = timing.host {
+            cell.set(Timing { host: Some(host + waited), ..timing });
+        }
+    });
+}
+
 /// The interrupt slot as the atomic it is written through (a function pointer or null)
 unsafe fn interrupt_slot(callbacks: *mut lua_Callbacks) -> &'static AtomicUsize {
     unsafe { AtomicUsize::from_ptr(std::ptr::addr_of_mut!((*callbacks).interrupt).cast::<usize>()) }

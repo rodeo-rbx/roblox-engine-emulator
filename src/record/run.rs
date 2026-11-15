@@ -1554,6 +1554,24 @@ fn context_table(lua: &Lua, engine: &Rc<Engine>, checkpoint: &Rc<Checkpoint>, sp
             found.map(|id| instance_value(lua, &e, id)).transpose()
         })?,
     )?;
+    // Context.HostCall(Request): one frame to the program that runs this ree as its engine, and its reply (hostcall.rs:
+    // the engine waits meanwhile and the virtual clock stands). Only with REE_HOST_CALL in the environment; the host is
+    // dialed at the first call, so a run prepared ahead that never calls reaches nothing.
+    if crate::hostcall::configured().is_some() {
+        let host = std::cell::RefCell::new(None::<crate::hostcall::Host>);
+        context.set(
+            "HostCall",
+            lua.create_function(move |lua, request: LuaString| {
+                let mut host = host.borrow_mut();
+                if host.is_none() {
+                    *host = crate::hostcall::Host::from_env().map_err(|error| LuaError::runtime(format!("Context.HostCall: {error}")))?;
+                }
+                let Some(connected) = host.as_mut() else { return Err(LuaError::runtime("Context.HostCall: no host")) };
+                let reply = connected.call(&request.as_bytes()).map_err(|error| LuaError::runtime(format!("Context.HostCall: {error}")))?;
+                lua.create_string(&reply)
+            })?,
+        )?;
+    }
     Ok(context)
 }
 
