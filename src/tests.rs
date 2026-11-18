@@ -3636,6 +3636,55 @@ fn editable_mesh_faces_share_their_vertices_corners() {
     );
 }
 
+/// CreateMeshPartAsync refuses an EditableMesh whose box passes 2048 studs with Studio's error and makes
+/// no part, as measured in Studio 0.747 (a play-test client, 2026-11-17): a box of 2112 x 520 x 2112
+/// studs centred on the mesh's origin, its far corners held by two zero-area triangles, raised it; one
+/// of 2048 x 520 x 2048 made its part (2026-11-15). One axis alone past the limit, y among them, is
+/// refused as the message's per-axis maximum reads (not measured apart).
+#[test]
+fn mesh_parts_refuse_a_mesh_past_2048_studs() {
+    let (lua, engine) = start();
+    let output = run(
+        &lua,
+        &engine,
+        r#"
+        local AssetService = game:GetService("AssetService")
+        -- a triangle about the origin and, as the measured mesh had, a zero-area triangle at each of two
+        -- opposite corners of a box of `size` centred on the origin
+        local function make(size)
+            local m = AssetService:CreateEditableMesh()
+            m:AddTriangle(m:AddVertex(Vector3.new(-4, 0, -4)), m:AddVertex(Vector3.new(0, 0, 4)), m:AddVertex(Vector3.new(4, 0, -4)))
+            for _, side in { 1, -1 } do
+                local at = size / 2 * side
+                m:AddTriangle(m:AddVertex(at), m:AddVertex(at), m:AddVertex(at))
+            end
+            return pcall(function()
+                return AssetService:CreateMeshPartAsync(Content.fromObject(m), { CollisionFidelity = Enum.CollisionFidelity.Box, RenderFidelity = Enum.RenderFidelity.Precise })
+            end)
+        end
+        local function refused(size)
+            local ok, problem = make(size)
+            assert(not ok and problem == "Mesh extents size too large. Maximum is (2048, 2048, 2048).", tostring(size) .. ": " .. tostring(problem))
+        end
+        local function made(size)
+            local ok, part = make(size)
+            assert(ok and part.ClassName == "MeshPart" and part.MeshSize == size and part.Size == size, tostring(size) .. ": " .. tostring(part))
+        end
+        -- the measured boxes
+        refused(Vector3.new(2112, 520, 2112))
+        made(Vector3.new(2048, 520, 2048))
+        -- each axis alone
+        for _, axis in { Vector3.xAxis, Vector3.yAxis, Vector3.zAxis } do
+            local rest = (Vector3.one - axis) * 520
+            refused(rest + axis * 2112)
+            made(rest + axis * 2048)
+        end
+        print("ok")
+        "#,
+    );
+    assert!(output.contains(&"print: ok".to_string()), "{output:?}");
+}
+
 /// EditableMesh:BatchAdd as a 0.747 client answers it (tools/parity/probes/editable_mesh_batch.luau): the new ids in the
 /// values' order; colours with their alphas; faces numbered backwards (the first face the batch's last id), listed by
 /// GetFaces in the order given, their corners as AddTriangle makes them; a value of the wrong type raises at the caller

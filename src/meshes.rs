@@ -25,6 +25,15 @@
 //! CFrames, and four bone slots a skinned vertex (zero weights included). MeshSize is the mesh's box
 //! when the part is made (at least 0.001) and stays when the mesh changes; ApplyMesh copies MeshSize
 //! and keeps Size. RemoveUnused returns the ids it removed.
+//!
+//! Measured in Studio 0.747 (a play-test client, 2026-11-17): CreateMeshPartAsync of an EditableMesh
+//! whose box is 2112 x 520 x 2112 studs raises "Mesh extents size too large. Maximum is (2048, 2048,
+//! 2048)." and makes no part; the box's far corners were held by two zero-area triangles, so their
+//! vertices count. A box of 2048 x 520 x 2048 made its part (2026-11-15). Both boxes were centred on
+//! the mesh's origin. Here the box is MeshSize's (every vertex, max - min) and one axis past 2048 is
+//! enough, as the message's per-axis maximum reads: one axis alone, a box off the origin and a vertex
+//! no face uses were not measured. Not measured and not checked: a mesh that grows past the limit
+//! after its part is made (SetPosition, BatchSetValues), ApplyMesh, and a mesh asset's own size.
 
 use std::{
     cell::RefCell,
@@ -52,6 +61,11 @@ const COLOR: u64 = 3;
 const UV: u64 = 4;
 const FACE: u64 = 5;
 const BONE: u64 = 6;
+
+/// The widest box, on each axis, of an EditableMesh a MeshPart is made from (the module's doc: 2048
+/// studs passes, 2112 raises this)
+const MAX_EXTENT: f32 = 2048.0;
+const EXTENTS_TOO_LARGE: &str = "Mesh extents size too large. Maximum is (2048, 2048, 2048).";
 
 /// The id of slot `slot` of `kind` in its `generation`: the high 32 bits are the generation over the kind's 3 bits, the
 /// low ones the slot from 1 (measured: a face slot's first reuse reads `13:3`, its second `21:3`).
@@ -1097,6 +1111,10 @@ fn mesh_part(lua: &Lua, engine: &Rc<Engine>, mesh_id: InstanceId, options: &LuaV
         let ext = extension(engine);
         let meshes = ext.meshes.borrow();
         let mesh = meshes.get(&mesh_id).ok_or_else(|| err("This EditableMesh has been destroyed"))?;
+        // Studio's error for a mesh too wide for a part, before anything is made (the module's doc)
+        if mesh.bounds().is_some_and(|(min, max)| (max - min).max_element() > MAX_EXTENT) {
+            return Err(err(EXTENTS_TOO_LARGE));
+        }
         (snapshot(engine, mesh).map_err(|problem| err(format!("CreateMeshPartAsync: {problem}")))?, mesh.size(), mesh.skinned())
     };
     let part = {
