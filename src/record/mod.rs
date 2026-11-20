@@ -221,7 +221,7 @@ struct Record {
     last: FxHashMap<NameId, Json>,
     /// Changes per property: how it plays back, (frame, encoded value)
     changes: Vec<(NameId, Track, Vec<(u32, Json)>)>,
-    /// (frame, count, where it emitted from at the call)
+    /// (frame, count, where its emitter was as that frame was drawn)
     emits: Vec<(u32, f64, Option<Emission>)>,
     clears: Vec<u32>,
     /// Its instance references the file holds (a beam's attachments, a model's PrimaryPart, a GUI's
@@ -282,7 +282,8 @@ struct Inner {
     /// Property writes since the last sample, in order (deduplicated)
     dirty: Vec<(InstanceId, NameId)>,
     dirty_set: FxHashSet<(InstanceId, NameId)>,
-    emits: Vec<(InstanceId, f64, Option<Emission>)>,
+    /// Emits since the last sample: (emitter, count)
+    emits: Vec<(InstanceId, f64)>,
     clears: Vec<InstanceId>,
     sounds: Vec<(WorldEvent, f64)>,
     sound_log: Vec<SoundEvent>,
@@ -408,7 +409,7 @@ impl Recorder {
         hooks.world_events.push(Box::new(move |state: &mut State, event: &WorldEvent| {
             let mut inner = events.borrow_mut();
             match event {
-                WorldEvent::Emit { emitter, count, from } => inner.emits.push((*emitter, *count, *from)),
+                WorldEvent::Emit { emitter, count } => inner.emits.push((*emitter, *count)),
                 WorldEvent::Clear { instance } => inner.clears.push(*instance),
                 WorldEvent::SoundPlayed { .. } | WorldEvent::SoundStopped { .. } => {
                     let now = state.sched.now;
@@ -1677,10 +1678,12 @@ fn sample_changes(inner: &mut Inner, state: &State, engine: &Rc<Engine>, lightin
         }
     }
 
-    // Emits and clears of what is in the world
-    for (id, count, from) in std::mem::take(&mut inner.emits) {
+    // Emits and clears of what is in the world. An emit's particles start as the frame is drawn, which is
+    // this sample: where its emitter is now, whatever moved it since the call (world::WorldEvent::Emit)
+    for (id, count) in std::mem::take(&mut inner.emits) {
         if let Some(&index) = inner.by_id.get(&id) {
             if is_present(inner, &id) {
+                let from = world::emission(state, engine, id);
                 inner.records[index].emits.push((frame, count, from));
             }
         }
@@ -1958,8 +1961,8 @@ fn playback(inner: &Inner) -> Playback {
                 }
             }
         }
-        // each burst where its emitter was at the call (ror places it there: a script moving an attachment
-        // between Emit calls in one frame leaves a burst at each place, where the frame's motion has one)
+        // each burst where its emitter was as its frame was drawn, and over its part as it was then (ror
+        // places it there, whatever the emitter's own track has for that moment)
         for (frame, count, from) in &record.emits {
             let count = count.round();
             if count > 0.0 {

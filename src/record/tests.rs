@@ -2049,37 +2049,47 @@ fn a_part_physics_moves_marks_where_its_motion_turns_physical() {
     assert!(steered[0].get("physicsFrom").is_none(), "a steered fall marked physical: {}", steered[0]);
 }
 
-/// `Emit` spawns its particles at once, where the emitter is at the call: an attachment moved to four
-/// corners in one frame, emitting after each move, leaves four bursts at four corners (an effect that
-/// locks its rectangle does so), and a part resized and moved between two emits leaves each
-/// burst over the part as it was then. The frame's motion holds only the last place: each emit carries
-/// its own.
+/// An emit's particles start where its emitter is as the frame is drawn, and over its part as it is then,
+/// wherever either was at the call (measured, Studio 0.748: world::WorldEvent::Emit has the scene and what
+/// it showed). So an attachment moved to four corners in one resumption, emitting after each move, leaves
+/// all four bursts at the last corner, where its track has it; a part resized and moved between two emits
+/// leaves both over the part as the frame leaves it; one that emits in PostSimulation and is moved in the
+/// render step after it emits from where the render step put it; and one moved in a later frame leaves
+/// what it emitted where it was.
 #[test]
-fn each_emit_leaves_from_where_its_emitter_was_at_the_call() {
+fn an_emit_starts_where_its_emitter_is_as_the_frame_is_drawn() {
     let (playback, _, _, summary) = record(
         r#"
-        local Plate = Instance.new("Part")
-        Plate.Name = "Plate"
-        Plate.Anchored = true
-        Plate.Transparency = 1
+        local RunService = game:GetService("RunService")
+        local function part(name)
+            local Part = Instance.new("Part")
+            Part.Name = name
+            Part.Anchored = true
+            Part.Transparency = 1
+            Part.Parent = workspace
+            return Part
+        end
+        local function emitter(name, parent)
+            local Emitter = Instance.new("ParticleEmitter")
+            Emitter.Name = name
+            Emitter.Rate = 0
+            Emitter.Parent = parent
+            return Emitter
+        end
+        local Plate = part("Plate")
         Plate.CFrame = CFrame.new(0, 2, 0)
-        Plate.Parent = workspace
         local Corner = Instance.new("Attachment")
         Corner.Name = "Corner"
         Corner.Parent = Plate
-        local Burst = Instance.new("ParticleEmitter")
-        Burst.Name = "Burst"
-        Burst.Rate = 0
-        Burst.Parent = Corner
-        local Field = Instance.new("Part")
-        Field.Name = "Field"
-        Field.Anchored = true
-        Field.Transparency = 1
-        Field.Parent = workspace
-        local Lift = Instance.new("ParticleEmitter")
-        Lift.Name = "Lift"
-        Lift.Rate = 0
-        Lift.Parent = Field
+        local Burst = emitter("Burst", Corner)
+        local Field = part("Field")
+        local Lift = emitter("Lift", Field)
+        local Late = part("Late")
+        Late.CFrame = CFrame.new(0, 30, 0)
+        local After = emitter("After", Late)
+        local Stays = part("Stays")
+        Stays.CFrame = CFrame.new(0, 60, 0)
+        local Left = emitter("Left", Stays)
         task.delay(0.1, function()
             for _, corner in { Vector3.new(-6, 0, -4), Vector3.new(6, 0, -4), Vector3.new(6, 0, 4), Vector3.new(-6, 0, 4) } do
                 Corner.WorldPosition = corner
@@ -2091,43 +2101,63 @@ fn each_emit_leaves_from_where_its_emitter_was_at_the_call() {
             Field.Size = Vector3.new(4, 0.1, 4)
             Field.CFrame = CFrame.new(10, 0.2, 0) * CFrame.Angles(0, math.pi / 2, 0)
             Lift:Emit(5)
+            Left:Emit(2)
+            -- after the frame's simulation, and moved by the render step that draws it
+            local simulated
+            simulated = RunService.PostSimulation:Connect(function()
+                simulated:Disconnect()
+                After:Emit(4)
+                local stepped
+                stepped = RunService.RenderStepped:Connect(function()
+                    stepped:Disconnect()
+                    Late.CFrame = CFrame.new(20, 30, 0)
+                end)
+            end)
+        end)
+        task.delay(0.15, function()
+            Stays.CFrame = CFrame.new(40, 60, 0)
         end)
         "#,
-        12,
+        14,
     );
+    let place = |action: &Json| -> [f64; 3] {
+        let cframe = action["cframe"].as_array().unwrap_or_else(|| panic!("no cframe: {action}"));
+        assert_eq!(cframe.len(), 12);
+        [cframe[0].as_f64().unwrap(), cframe[1].as_f64().unwrap(), cframe[2].as_f64().unwrap()]
+    };
+    // the attachment's four bursts: all where the frame left it, which is where its own track has it
     let bursts = find(&playback["actions"], |a| a["target"] == "Plate.Corner.Burst" && a["emit"].is_number());
     assert_eq!(bursts.len(), 4, "{}", playback["actions"]);
     let at = bursts[0]["at"].as_f64().unwrap();
     assert!((at - 0.1).abs() < 0.02, "emitted at {at}");
-    let corners: Vec<[f64; 3]> = bursts
-        .iter()
-        .map(|burst| {
-            assert_eq!(burst["at"].as_f64(), Some(at), "the four bursts are one frame's");
-            assert_eq!(burst["emit"], 8);
-            assert!(burst.get("partSize").is_none(), "an attachment has no size: {burst}");
-            let cframe = burst["cframe"].as_array().unwrap_or_else(|| panic!("no cframe: {burst}"));
-            assert_eq!(cframe.len(), 12);
-            let rotation: Vec<f64> = cframe[3..].iter().map(|v| v.as_f64().unwrap()).collect();
-            assert_eq!(rotation, [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
-            [cframe[0].as_f64().unwrap(), cframe[1].as_f64().unwrap(), cframe[2].as_f64().unwrap()]
-        })
-        .collect();
-    assert_eq!(corners, [[-6.0, 0.0, -4.0], [6.0, 0.0, -4.0], [6.0, 0.0, 4.0], [-6.0, 0.0, 4.0]]);
-    // the attachment's own track holds the frame's last place only
+    for burst in &bursts {
+        assert_eq!(burst["at"].as_f64(), Some(at), "the four bursts are one frame's");
+        assert_eq!(burst["emit"], 8);
+        assert!(burst.get("partSize").is_none(), "an attachment has no size: {burst}");
+        assert_eq!(place(burst), [-6.0, 0.0, 4.0], "a burst away from where the frame left its attachment: {burst}");
+    }
     let corner = find(&playback["motion"], |m| m["target"] == "Plate.Corner");
     let last = corner[0]["keys"].as_array().unwrap().last().unwrap()["cframe"].clone();
     assert_eq!((last[0].as_f64(), last[2].as_f64()), (Some(-6.0), Some(4.0)), "{last}");
-    // the part's emitter: each burst over the part as it was at its call
+    // the part's two bursts: both over the part as the frame left it, turned and resized
     let lifts = find(&playback["actions"], |a| a["target"] == "Field.Lift" && a["emit"].is_number());
     assert_eq!(lifts.len(), 2, "{}", playback["actions"]);
-    assert_eq!(lifts[0]["emit"], 3);
-    assert_eq!(lifts[0]["partSize"], serde_json::json!([12.0, 0.1, 8.0]));
-    assert_eq!(lifts[0]["cframe"], serde_json::json!([0.0, 0.2, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]));
-    assert_eq!(lifts[1]["emit"], 5);
-    assert_eq!(lifts[1]["partSize"], serde_json::json!([4.0, 0.1, 4.0]));
-    let turned = lifts[1]["cframe"].as_array().unwrap();
-    assert_eq!((turned[0].as_f64(), turned[5].as_f64(), turned[9].as_f64()), (Some(10.0), Some(1.0), Some(-1.0)), "{}", lifts[1]);
-    assert_eq!(summary["emits"], 6);
+    assert_eq!((&lifts[0]["emit"], &lifts[1]["emit"]), (&serde_json::json!(3), &serde_json::json!(5)));
+    for lift in &lifts {
+        assert_eq!(lift["partSize"], serde_json::json!([4.0, 0.1, 4.0]), "{lift}");
+        let turned = lift["cframe"].as_array().unwrap();
+        assert_eq!((turned[0].as_f64(), turned[5].as_f64(), turned[9].as_f64()), (Some(10.0), Some(1.0), Some(-1.0)), "{lift}");
+    }
+    // emitted after the simulation where the part then was, drawn where the render step put it
+    let after = find(&playback["actions"], |a| a["target"] == "Late.After" && a["emit"].is_number());
+    assert_eq!(after.len(), 1, "{}", playback["actions"]);
+    assert_eq!(place(after[0]), [20.0, 30.0, 0.0], "{}", after[0]);
+    // moved in a later frame: what it emitted started where it was drawn
+    let left = find(&playback["actions"], |a| a["target"] == "Stays.Left" && a["emit"].is_number());
+    assert_eq!(left.len(), 1, "{}", playback["actions"]);
+    assert_eq!(place(left[0]), [0.0, 60.0, 0.0], "{}", left[0]);
+    assert!(left[0]["at"].as_f64().unwrap() < 0.15, "{}", left[0]);
+    assert_eq!(summary["emits"], 8);
 }
 
 /// An instance reference written after the instance appeared plays as a `set` naming the referenced

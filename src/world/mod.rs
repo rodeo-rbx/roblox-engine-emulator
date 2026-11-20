@@ -44,10 +44,16 @@ use super::{
 /// What the world did that no property records.
 #[derive(Clone, Debug, PartialEq)]
 pub enum WorldEvent {
-    /// `ParticleEmitter:Emit(count)`, from where the emitter was at the call (`from`, when observers
-    /// are installed): Roblox spawns the particles in the call (not measured here), so a script that
-    /// moves an attachment between calls in one frame leaves a burst at each place
-    Emit { emitter: InstanceId, count: f64, from: Option<Emission> },
+    /// `ParticleEmitter:Emit(count)`. The call spawns nothing: its particles start when the frame is
+    /// next drawn, where the emitter's part or attachment is then and over the part as it is then
+    /// ([`emission`], read at the frame's sample), wherever either was at the call. Measured, Studio
+    /// 0.748, a playing client, still particles in front of a fixed camera: a part moved A, B, C in
+    /// one render step with an Emit(20) at A and at B, an attachment moved so, and an attachment
+    /// whose part was moved so, each left all 40 particles at C and none at A or B; a part and an
+    /// attachment that emitted at A in PostSimulation and were put at B in the next render step left
+    /// theirs at B; and a part that emitted 120 at a stud across and was 28 across by the end of
+    /// that render step spread them over the 28.
+    Emit { emitter: InstanceId, count: f64 },
     /// `ParticleEmitter:Clear()`, `Trail:Clear()`
     Clear { instance: InstanceId },
     /// `Sound:Play()` / `:Resume()`, or `SoundService:PlayLocalSound(sound)` (`local`)
@@ -56,9 +62,9 @@ pub enum WorldEvent {
     SoundStopped { sound: InstanceId },
 }
 
-/// Where an emit's particles leave from: the world CFrame of the emitter's part or attachment at the
-/// call (a bone's where its animation puts it, as the recorder draws attachments), and a part's Size
-/// then (a part's emitter spawns over it).
+/// Where an emitter's particles leave from: the world CFrame of its part or attachment (a bone's
+/// where its animation puts it, as the recorder draws attachments), and a part's Size (a part's
+/// emitter spawns over it). An emit's is what this is when its frame is drawn ([`WorldEvent::Emit`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Emission {
     pub cframe: Affine3A,
@@ -84,11 +90,6 @@ pub fn emission(state: &State, engine: &Engine, emitter: InstanceId) -> Option<E
         return Some(Emission { cframe: world_cframe(state, engine, parent), part_size: None });
     }
     None
-}
-
-/// Whether anything observes the world's events (a recorder): what only they read is worked out then.
-fn observed(engine: &Engine) -> bool {
-    !engine.hooks.borrow().world_events.is_empty()
 }
 
 /// Reports `event` to every observer (Hooks.world_events).
@@ -465,8 +466,7 @@ pub fn install(engine: &Rc<Engine>) {
                 state.sched.charge(cold);
                 crate::boundary::add_cost(cold);
             }
-            let from = if observed(engine) { emission(&engine.state.borrow(), engine, id) } else { None };
-            report(engine, WorldEvent::Emit { emitter: id, count, from });
+            report(engine, WorldEvent::Emit { emitter: id, count });
             Ok(none())
         }));
         behaviors.add_method(emitter, clear, method(|_, engine, id, _| {
